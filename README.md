@@ -6,11 +6,12 @@
 SharpEDL是一个使用C#原生实现的高通9008通信库  
 使用的运行时为.net8.0，已经在我的设备(Redmi 5 plus)上通过测试  
 该项目实现的功能有:
-* Sahara模式下获取信息，发送引导
-* 读/写/擦分区
-* 稀疏(sparse)文件刷写
-* 解析分区表
-* 刷写flat build刷机包
+- Sahara模式下获取信息，发送引导
+- 读/写/擦分区
+- 稀疏(sparse)文件刷写
+- 解析分区表
+- 刷写flat build刷机包
+- 小米设备授权/免授权
 
 ## Get Started
 ### Sahara 读取信息
@@ -41,16 +42,16 @@ server.SendProgrammer(state.ImageTransfer, stream, (uint)stream.Length);
 FirehoseServer Server = new FirehoseServer { Port = port };
 Server.ProgressChanged += OnProgressChanged; //可选
 Server.ReadbackImage(new PartitionInfo
-            {
-                Label = "boot",
-                FileSectorOffset = 0,
-                StartSector = "790528",
-                SectorLen = 131072,
-                BytesPerSector = Server.SectorSize,
-                Sparse = false,
-                Lun = 0,
-                FilePath = "I:\\tmp\\qc\\boot.img"
-            });
+{
+    Label = "boot",
+    FileSectorOffset = 0,
+    StartSector = "790528",
+    SectorLen = 131072,
+    BytesPerSector = Server.SectorSize,
+    Sparse = false,
+    Lun = 0,
+    FilePath = "I:\\tmp\\qc\\boot.img"
+});
 ```
 
 ### 写分区(sparse)
@@ -78,16 +79,16 @@ writer.Dispose();
 FirehoseServer Server = new FirehoseServer { Port = port };
 Server.ProgressChanged += OnProgressChanged; //可选
 Server.WriteUnsparseImage(new PartitionInfo
-            {
-                Label = "boot",
-                FileSectorOffset = 0,
-                StartSector = "790528",
-                SectorLen = 131072,
-                BytesPerSector = Server.SectorSize,
-                Sparse = false,
-                Lun = 0,
-                FilePath = "I:\\tmp\\qc\\boot.img"
-            });
+{
+    Label = "boot",
+    FileSectorOffset = 0,
+    StartSector = "790528",
+    SectorLen = 131072,
+    BytesPerSector = Server.SectorSize,
+    Sparse = false,
+    Lun = 0,
+    FilePath = "I:\\tmp\\qc\\boot.img"
+});
 ```
 
 更多示例请参见Demo
