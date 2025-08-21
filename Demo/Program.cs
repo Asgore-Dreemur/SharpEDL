@@ -23,7 +23,7 @@ namespace Demo
                               $"SBL Version:  {sblVersion}");
             server.SwitchMode(SaharaMode.ImageTxPending);
             var state = server.DoHelloHandshake(SaharaMode.ImageTxPending);
-            FileStream stream = new FileStream("I:\\tmp\\qc\\mi_noauth_625.mbn", FileMode.Open, FileAccess.Read);
+            FileStream stream = new FileStream("D:\\tmp\\qc\\mi_noauth_625.mbn", FileMode.Open, FileAccess.Read);
             server.SendProgrammer(state.ImageTransfer, stream, (uint)stream.Length);
         }
 
@@ -38,6 +38,7 @@ namespace Demo
         {
             Console.WriteLine("Do readback");
             DateTime time1 = DateTime.Now;
+            FileStream stream = new FileStream("D:\\tmp\\qc\\boot.img", FileMode.Open, FileAccess.Write);
             Server.ReadbackImage(new PartitionInfo
             {
                 Label = "boot",
@@ -47,8 +48,8 @@ namespace Demo
                 BytesPerSector = Server.SectorSize,
                 Sparse = false,
                 Lun = 0,
-                FilePath = "I:\\tmp\\qc\\boot.img"
-            });
+                FilePath = "D:\\tmp\\qc\\boot.img"
+            }, stream);
             DateTime time2 = DateTime.Now;
             Console.WriteLine("Total seconds: " + (time2 - time1).TotalSeconds);
         }
@@ -57,6 +58,7 @@ namespace Demo
         {
             Console.WriteLine("Do write unsparse image");
             DateTime time1 = DateTime.Now;
+            FileStream stream = new FileStream("D:\\tmp\\qc\\boot.img", FileMode.Open, FileAccess.Read);
             Server.WriteUnsparseImage(new PartitionInfo
             {
                 Label = "boot",
@@ -67,7 +69,7 @@ namespace Demo
                 Sparse = false,
                 Lun = 0,
                 FilePath = "I:\\tmp\\qc\\boot.img"
-            });
+            }, stream);
             DateTime time2 = DateTime.Now;
             Console.WriteLine("Total seconds: " + (time2 - time1).TotalSeconds);
         }
@@ -76,6 +78,7 @@ namespace Demo
         {
             Console.WriteLine("Do write sparse image");
             DateTime time1 = DateTime.Now;
+            FileStream stream = new FileStream("D:\\tmp\\qc\\system.img", FileMode.Open, FileAccess.Read);
             PartitionInfo info = new PartitionInfo
             {
                 Label = "system",
@@ -87,11 +90,7 @@ namespace Demo
                 Lun = 0,
                 FilePath = "I:\\tmp\\qc\\system.img"
             };
-            SparseWriter writer = new SparseWriter(Server, info);
-            writer.ProgressChanged += (sender, e) => Console.WriteLine(e);
-            writer.StartWrite();
-            writer.WaitForComplete();
-            writer.Dispose();
+            Server.WriteSparseImage(info, stream);
             DateTime time2 = DateTime.Now;
             Console.WriteLine("Total seconds: " + (time2 - time1).TotalSeconds);
         }
@@ -135,7 +134,7 @@ namespace Demo
         public void FlashProgram()
         {
             Console.WriteLine("Do flash program");
-            ProgramFlasher flasher = new ProgramFlasher(Server, "I:\\tmp\\vince_images_V11.0.3.0.OEGCNXM_20191118.0000.00_8.1_cn\\images");
+            ProgramFlasher flasher = new ProgramFlasher(Server, "D:\\tmp\\vince_images_V11.0.3.0.OEGCNXM_20191118.0000.00_8.1_cn\\images");
             flasher.ProgressChanged += (sender, e) => Console.WriteLine(e);
             flasher.BypassPartitions.Add("userdata", -1); //Bypass userdata
             flasher.BypassPartitions.Add("modem", -1); //Bypass modem
@@ -155,7 +154,7 @@ namespace Demo
 
         static void Main(string[] args)
         {
-            SerialPort port = new SerialPort("COM7");
+            SerialPort port = new SerialPort("COM3");
             port.BaudRate = 115200;
             port.Open();
 
@@ -165,10 +164,9 @@ namespace Demo
             demo.MI_BypassAuth();
             server.GetDeviceConfig();
             server.ProgressChanged += OnProgressChanged;
-
+            demo.WriteSparseImage();
             demo.Readback();
             demo.WriteUnSparseImage();
-            demo.WriteSparseImage();
             demo.ErasePartition();
             server.ProgressChanged -= OnProgressChanged;
             demo.FlashProgram();

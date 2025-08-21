@@ -56,6 +56,8 @@ Server.ReadbackImage(new PartitionInfo
 
 ### 写分区(sparse)
 ```csharp
+FirehoseServer Server = new FirehoseServer { Port = port };
+Server.ProgressChanged += OnProgressChanged; //可选
 PartitionInfo info = new PartitionInfo
 {
     Label = "system",
@@ -67,11 +69,7 @@ PartitionInfo info = new PartitionInfo
     Lun = 0,
     FilePath = "I:\\tmp\\qc\\system.img"
 };
-SparseWriter writer = new SparseWriter(Server, info);
-writer.ProgressChanged += (sender, e) => Console.WriteLine(e);
-writer.StartWrite();
-writer.WaitForComplete();
-writer.Dispose();
+Server.WriteSparseImage(info);
 ```
 
 ### 写分区(unsparse)

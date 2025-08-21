@@ -10,6 +10,7 @@ using System.Net.Http.Headers;
 using System.Buffers.Binary;
 using System.Runtime.InteropServices;
 using System.Runtime.CompilerServices;
+using System.Runtime.ConstrainedExecution;
 
 namespace SharpEDL
 {
@@ -42,12 +43,15 @@ namespace SharpEDL
         /// </summary>
         public event EventHandler<(long, long)>? ProgressChanged;
 
+        public int MaxSparseDataSizeToDevice { get; set; } = 1024 * 1024 * 128;
+
         /// <summary>
         /// 一次性全部读取缓冲区中所有数据,若无数据则会阻塞
         /// </summary>
         /// <returns>读取到的数据</returns>
         public byte[] ReadFromDevice()
         {
+            
             int firstByte = Port.ReadByte();
             byte[] buffer = new byte[Port.BytesToRead+1];
             buffer[0] = (byte)firstByte;
@@ -178,98 +182,16 @@ namespace SharpEDL
             return response;
         }
 
-        /// <summary>
-        /// 回读分区，可通过<see cref="ProgressChanged"/>事件监听进度
-        /// </summary>
-        /// <param name="info">分区信息，必须指定<see cref="PartitionInfo.FilePath"/>为镜像保存路径</param>
-        /// <exception cref="ArgumentNullException"><see cref="PartitionInfo.FilePath"/>为空时将抛出此异常</exception>
-        public QCResponse ReadbackImage(PartitionInfo info)
+        private QCResponse CommonStreamMethod(PartitionInfo info, Func<PartitionInfo, Stream, QCResponse> func)
         {
             if (string.IsNullOrEmpty(info.FilePath))
                 throw new ArgumentNullException(nameof(info.FilePath));
-            FileStream stream = new FileStream(info.FilePath, FileMode.Open, FileAccess.Write);
-            byte[] buffer = new byte[MaxPayloadSizeFromTarget];
+            FileStream stream = new FileStream(info.FilePath, FileMode.Open, FileAccess.ReadWrite);
             try
             {
-                Port.Write($"<?xml version=\"1.0\" encoding=\"UTF-8\" ?>" +
-                    $"<data><read physical_partition_number=\"{info.Lun}\"" +
-                    $" label=\"{info.Label}\" start_sector=\"{info.StartSector}\" num_partition_sectors=\"{info.SectorLen}\"" +
-                    $" SECTOR_SIZE_IN_BYTES=\"{info.BytesPerSector}\" /></data>");
-                long totalSize = info.SectorLen * info.BytesPerSector;
-                long bytesNeedRead = totalSize;
-                QCResponse response = WaitForResponse(8192);
-                if(response.Response != "ACK")
-                {
-                    stream.Close();
-                    return response;
-                }
-                if(response.UnhandledData.Length > 0)
-                {
-                    stream.Write(response.UnhandledData, 0, response.UnhandledData.Length);
-                    bytesNeedRead -= response.UnhandledData.Length;
-                }
-                while (bytesNeedRead > 0) { 
-                    int readSize = (int)(bytesNeedRead > MaxPayloadSizeFromTarget ? MaxPayloadSizeFromTarget : bytesNeedRead);
-                    readSize = Port.Read(buffer, 0, readSize);
-                    stream.Write(buffer, 0, readSize);
-                    bytesNeedRead -= readSize;
-                    ProgressChanged?.Invoke(this, (totalSize - bytesNeedRead, totalSize));
-                }
+                var response = func(info, stream);
                 stream.Close();
-                return WaitForResponse();
-            }
-            catch (Exception) {
-                stream.Close();
-                throw;
-            }
-        }
-
-        /// <summary>
-        /// 写入非稀疏文件到对应分区，可通过<see cref="ProgressChanged"/>事件监听进度
-        /// </summary>
-        /// <param name="info">分区信息,必须指定<see cref="PartitionInfo.FilePath"/>为镜像路径</param>
-        /// <exception cref="ArgumentNullException"><see cref="PartitionInfo.FilePath"/>为空时将抛出此异常</exception>
-        public QCResponse WriteUnsparseImage(PartitionInfo info)
-        {
-            if (string.IsNullOrEmpty(info.FilePath))
-                throw new ArgumentNullException(nameof(info.FilePath));
-            FileStream stream = new FileStream(info.FilePath, FileMode.Open, FileAccess.Read);
-            try
-            {
-                stream.Seek(info.FileSectorOffset * info.BytesPerSector, SeekOrigin.Begin);
-
-                long fileSize = stream.Length - info.FileSectorOffset * info.BytesPerSector;
-                long numSectors = (long)Math.Ceiling((double)fileSize / info.BytesPerSector);
-                long sectorsToWrite = numSectors;
-
-                byte[] buffer = new byte[MaxPayloadSizeToTarget];
-                Port.Write($"<?xml version=\"1.0\" encoding=\"UTF-8\" ?>" +
-                    $"<data><program physical_partition_number=\"{info.Lun}\" label=\"{info.Label}\"" +
-                    $" start_sector=\"{info.StartSector}\" num_partition_sectors=\"{numSectors}\" SECTOR_SIZE_IN_BYTES=\"{info.BytesPerSector}\"" +
-                    $" sparse=\"false\" /></data>");
-                QCResponse response = WaitForResponse();
-                if (response.Response != "ACK")
-                {
-                    stream.Close();
-                    return response;
-                }
-                while (sectorsToWrite > 0)
-                {
-                    int readSize = stream.Read(buffer, 0, buffer.Length);
-                    long readSectorLen = readSize / info.BytesPerSector;
-                    byte[] writeBuffer = buffer;
-                    if (readSize % info.BytesPerSector != 0)
-                    {
-                        readSectorLen++;
-                        long fillSize = readSectorLen * info.BytesPerSector - readSize;
-                        writeBuffer = buffer.Concat(new byte[fillSize]).ToArray();
-                    }
-                    Port.Write(writeBuffer, 0, (int)readSectorLen * info.BytesPerSector);
-                    sectorsToWrite -= readSectorLen;
-                    ProgressChanged?.Invoke(this, (numSectors - sectorsToWrite, numSectors));
-                }
-                stream.Close();
-                return WaitForResponse();
+                return response;
             }
             catch (Exception)
             {
@@ -277,6 +199,146 @@ namespace SharpEDL
                 throw;
             }
         }
+
+        /// <summary>
+        /// 回读分区，可通过<see cref="ProgressChanged"/>事件监听进度
+        /// </summary>
+        /// <param name="info">分区信息</param>
+        /// <param name="stream">用于存储数据的流</param>
+        public QCResponse ReadbackImage(PartitionInfo info, Stream stream)
+        {
+            byte[] buffer = new byte[MaxPayloadSizeFromTarget];
+            Port.Write($"<?xml version=\"1.0\" encoding=\"UTF-8\" ?>" +
+                $"<data><read physical_partition_number=\"{info.Lun}\"" +
+                $" label=\"{info.Label}\" start_sector=\"{info.StartSector}\" num_partition_sectors=\"{info.SectorLen}\"" +
+                $" SECTOR_SIZE_IN_BYTES=\"{info.BytesPerSector}\" /></data>");
+            long totalSize = info.SectorLen * info.BytesPerSector;
+            long bytesNeedRead = totalSize;
+            QCResponse response = WaitForResponse(8192);
+            if (response.Response != "ACK")
+            {
+                stream.Close();
+                return response;
+            }
+            if (response.UnhandledData.Length > 0)
+            {
+                stream.Write(response.UnhandledData, 0, response.UnhandledData.Length);
+                bytesNeedRead -= response.UnhandledData.Length;
+            }
+            while (bytesNeedRead > 0)
+            {
+                int readSize = (int)(bytesNeedRead > MaxPayloadSizeFromTarget ? MaxPayloadSizeFromTarget : bytesNeedRead);
+                readSize = Port.Read(buffer, 0, readSize);
+                stream.Write(buffer, 0, readSize);
+                bytesNeedRead -= readSize;
+                ProgressChanged?.Invoke(this, (totalSize - bytesNeedRead, totalSize));
+            }
+            stream.Close();
+            return WaitForResponse();
+        }
+
+        /// <summary>
+        /// 回读分区，可通过<see cref="ProgressChanged"/>事件监听进度
+        /// </summary>
+        /// <param name="info">分区信息,必须指定<see cref="PartitionInfo.FilePath"/>为镜像路径</param>
+        /// <param name="stream">用于存储数据的流</param>
+        public QCResponse ReadbackImage(PartitionInfo info) => CommonStreamMethod(info, ReadbackImage);
+
+        /// <summary>
+        /// 写入稀疏文件，可通过<see cref="ProgressChanged"/>事件监听进度
+        /// </summary>
+        /// <param name="info">分区信息</param>
+        /// <param name="stream">用于存储稀疏文件数据的流</param>
+        public QCResponse WriteSparseImage(PartitionInfo info, Stream stream)
+        {
+            SparseStream sparseStream = new SparseStream(stream);
+
+            long numSectors = (long)Math.Ceiling((double)sparseStream.Length / info.BytesPerSector);
+            long totalSize = numSectors * info.BytesPerSector;
+            long wroteSize = 0;
+
+            Port.Write($"<?xml version=\"1.0\" encoding=\"UTF-8\" ?>" +
+                    $"<data><program physical_partition_number=\"{info.Lun}\" label=\"{info.Label}\"" +
+                    $" start_sector=\"{long.Parse(info.StartSector)}\" num_partition_sectors=\"{numSectors}\" SECTOR_SIZE_IN_BYTES=\"{info.BytesPerSector}\"" +
+                    $" sparse=\"true\" /></data>");
+            var response = WaitForResponse();
+            if (response.Response != "ACK")
+                return response;
+
+            byte[] buffer = new byte[MaxPayloadSizeToTarget];
+            while (true)
+            {
+                int readSize = sparseStream.Read(buffer, 0, buffer.Length);
+                if (readSize <= 0)
+                    break; 
+                Port.Write(buffer, 0, readSize);
+                wroteSize += readSize;
+                ProgressChanged?.Invoke(this, (wroteSize, totalSize));
+            }
+
+            if (wroteSize % info.BytesPerSector != 0)
+            {
+                byte[] fillBuffer = new byte[info.BytesPerSector - wroteSize % info.BytesPerSector];
+                Port.Write(fillBuffer, 0, fillBuffer.Length);
+            }
+            return WaitForResponse();
+        }
+
+        /// <summary>
+        /// 写入稀疏文件，可通过<see cref="ProgressChanged"/>事件监听进度
+        /// </summary>
+        /// <param name="info">分区信息，必须指定<see cref="PartitionInfo.FilePath"/>为镜像路径</param>
+        /// <returns></returns>
+        public QCResponse WriteSparseImage(PartitionInfo info) => CommonStreamMethod(info, WriteSparseImage);
+
+        /// <summary>
+        /// 写入非稀疏文件，可通过<see cref="ProgressChanged"/>事件监听进度
+        /// </summary>
+        /// <param name="info">分区信息</param>
+        /// <param name="stream">存储文件数据的流</param>
+        public QCResponse WriteUnsparseImage(PartitionInfo info, Stream stream)
+        {
+            stream.Seek(info.FileSectorOffset * info.BytesPerSector, SeekOrigin.Begin);
+
+            long fileSize = stream.Length - info.FileSectorOffset * info.BytesPerSector;
+            long numSectors = (long)Math.Ceiling((double)fileSize / info.BytesPerSector);
+            long sectorsToWrite = numSectors;
+
+            byte[] buffer = new byte[MaxPayloadSizeToTarget];
+            Port.Write($"<?xml version=\"1.0\" encoding=\"UTF-8\" ?>" +
+                $"<data><program physical_partition_number=\"{info.Lun}\" label=\"{info.Label}\"" +
+                $" start_sector=\"{info.StartSector}\" num_partition_sectors=\"{numSectors}\" SECTOR_SIZE_IN_BYTES=\"{info.BytesPerSector}\"" +
+                $" sparse=\"false\" /></data>");
+            QCResponse response = WaitForResponse();
+            if (response.Response != "ACK")
+            {
+                stream.Close();
+                return response;
+            }
+            while (sectorsToWrite > 0)
+            {
+                int readSize = stream.Read(buffer, 0, buffer.Length);
+                long readSectorLen = readSize / info.BytesPerSector;
+                byte[] writeBuffer = buffer;
+                if (readSize % info.BytesPerSector != 0)
+                {
+                    readSectorLen++;
+                    long fillSize = readSectorLen * info.BytesPerSector - readSize;
+                    writeBuffer = buffer.Concat(new byte[fillSize]).ToArray();
+                }
+                Port.Write(writeBuffer, 0, (int)readSectorLen * info.BytesPerSector);
+                sectorsToWrite -= readSectorLen;
+                ProgressChanged?.Invoke(this, (numSectors - sectorsToWrite, numSectors));
+            }
+            stream.Close();
+            return WaitForResponse();
+        }
+
+        /// <summary>
+        /// 写入非稀疏文件，可通过<see cref="ProgressChanged"/>事件监听进度
+        /// </summary>
+        /// <param name="info">分区信息,必须指定<see cref="PartitionInfo.FilePath"/>为镜像路径</param>
+        public QCResponse WriteUnsparseImage(PartitionInfo info) => CommonStreamMethod(info, WriteUnsparseImage);
 
         /// <summary>
         /// 擦除指定分区

@@ -188,13 +188,7 @@ namespace SharpEDL
                     CurrentStep = item.Label;
                     OnProgressChanged(this, (0, item.SectorLen));
                     if (item.Sparse)
-                    {
-                        SparseWriter writer = new SparseWriter(Server, item, MaxItemInSparseBuffer);
-                        writer.ProgressChanged += OnProgressChanged;
-                        writer.StartWrite();
-                        writer.WaitForComplete();
-                        writer.Dispose();
-                    }
+                        response = Server.WriteSparseImage(item);
                     else
                         response = Server.WriteUnsparseImage(item);
                 }
