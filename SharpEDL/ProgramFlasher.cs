@@ -6,6 +6,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Xml;
+using System.Xml.Linq;
 
 namespace SharpEDL
 {
@@ -29,9 +30,9 @@ namespace SharpEDL
 
         /// <summary>
         /// <para>指定应当跳过刷入的分区</para>
-        /// <para>字典中，键为分区名，值为lun号(指定为-1以跳过所有lun中该分区的刷写)</para>
+        /// <para>元组中，第一个元素为分区名，第二个元素为lun号(指定为-1以跳过所有lun中该分区的刷写)</para>
         /// </summary>
-        public Dictionary<string, int> BypassPartitions { get; set; } = new Dictionary<string, int>();
+        public List<(string, int)> BypassPartitions { get; set; } = new List<(string, int)>();
 
         /// <summary>
         /// 参见<see cref="SparseWriter.MaxItemCountInBuffer"/>
@@ -163,6 +164,36 @@ namespace SharpEDL
             return patches;
         }
 
+        /// <summary>
+        /// 为给定的分区生成rawprogram
+        /// </summary>
+        /// <param name="partitions">分区信息</param>
+        /// <param name="defaultNonSparse">是否默认指定sparse属性为false</param>
+        /// <returns>rawprogram字符串</returns>
+        public static string GenerateRawprogram(List<PartitionInfo> partitions, bool defaultNonSparse = true)
+        {
+            XElement root = new XElement("data");
+            foreach(var item in partitions)
+            {
+                XElement element = new XElement("program");
+                element.SetAttributeValue("SECTOR_SIZE_IN_BYTES", item.BytesPerSector);
+                element.SetAttributeValue("file_sector_offset", item.FileSectorOffset);
+                element.SetAttributeValue("filename", !string.IsNullOrEmpty(item.FilePath) ? Path.GetFileName(item.FilePath) : "");
+                element.SetAttributeValue("label", item.Label);
+                element.SetAttributeValue("num_partition_sectors", item.SectorLen);
+                element.SetAttributeValue("physical_partition_number", item.Lun);
+                element.SetAttributeValue("sparse", defaultNonSparse ? "false" : item.Sparse ? "true" : "false");
+                if (item.Label == "BackupGPT")
+                    element.SetAttributeValue("start_byte_hex", $"({item.BytesPerSector}*NUM_DISK_SECTORS)-{item.BytesPerSector * item.SectorLen}.");
+                else
+                    element.SetAttributeValue("start_byte_hex", $"0x{int.Parse(item.StartSector):x8}");
+                    element.SetAttributeValue("start_sector", item.StartSector);
+                root.Add(element);
+            }
+            XDocument doc = new XDocument(new XDeclaration("1.0", "utf-8", null), root);
+            return "<?xml version=\"1.0\" encoding=\"UTF-8\" ?>\n" + doc.ToString();
+        }
+
         private void OnProgressChanged(object? sender, (long, long) progress)
         {
             ProgressChanged?.Invoke(this, (CurrentStep, progress));
@@ -180,13 +211,13 @@ namespace SharpEDL
             {
                 foreach (var item in Partitions)
                 {
-                    if (BypassPartitions.ContainsKey(item.Label) && 
-                        (BypassPartitions[item.Label] == -1 || BypassPartitions[item.Label] == item.Lun))
+                    if (BypassPartitions.Find(partition => 
+                                item.Label == partition.Item1 && (partition.Item2 == -1 || partition.Item2 == item.Lun)) != default)
                         continue;
                     if (string.IsNullOrEmpty(item.FilePath))
                         continue;
                     CurrentStep = item.Label;
-                    OnProgressChanged(this, (0, item.SectorLen));
+                    OnProgressChanged(this, (0, 1));
                     if (item.Sparse)
                         response = Server.WriteSparseImage(item);
                     else
@@ -198,7 +229,7 @@ namespace SharpEDL
                 {
                     if (item.FileName != "DISK")
                         continue;
-                    OnProgressChanged(this, (Patches.IndexOf(item), Patches.Count));
+                    OnProgressChanged(this, (Patches.IndexOf(item)+1, Patches.Count));
                     response = Server.SendPatch(item);
                     if (response.Response != "ACK")
                         return response;

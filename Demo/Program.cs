@@ -11,7 +11,7 @@ namespace Demo
 
         public static void EnterFirehose(SerialPort port)
         {
-            SaharaServer server = new SaharaServer { Port = port };
+            SaharaServer server = new SaharaServer(port);
             server.DoHelloHandshake(SaharaMode.Command);
             string msmid = server.GetMsmHWID();
             string pkhash = server.GetOEMPkHash();
@@ -30,7 +30,7 @@ namespace Demo
         public bool MI_BypassAuth()
         {
             Console.WriteLine("Do MI noauth");
-            MiAuth auth = new MiAuth { Server = Server };
+            MiAuth auth = new MiAuth(Server);
             return auth.BypassAuth();
         }
 
@@ -119,7 +119,8 @@ namespace Demo
         {
             Console.WriteLine("Do read GPT");
             DateTime time1 = DateTime.Now;
-            foreach (var item in Server.GetPartitionsFromDevice(true))
+            var items = Server.GetPartitionsFromDevice(true);
+            foreach (var item in items)
             {
                 Console.WriteLine($"Label:           {item.Label}\n" +
                                   $"Start Sector:    {item.StartSector}\n" +
@@ -129,6 +130,7 @@ namespace Demo
             }
             DateTime time2 = DateTime.Now;
             Console.WriteLine("Total seconds: " + (time2 - time1).TotalSeconds);
+            string program = ProgramFlasher.GenerateRawprogram(items);
         }
 
         public void FlashProgram()
@@ -136,8 +138,8 @@ namespace Demo
             Console.WriteLine("Do flash program");
             ProgramFlasher flasher = new ProgramFlasher(Server, "D:\\tmp\\vince_images_V11.0.3.0.OEGCNXM_20191118.0000.00_8.1_cn\\images");
             flasher.ProgressChanged += (sender, e) => Console.WriteLine(e);
-            flasher.BypassPartitions.Add("userdata", -1); //Bypass userdata
-            flasher.BypassPartitions.Add("modem", -1); //Bypass modem
+            flasher.BypassPartitions.Add(("userdata", -1)); //Bypass userdata
+            flasher.BypassPartitions.Add(("modem", -1)); //Bypass modem
             DateTime time1 = DateTime.Now;
             flasher.FlashPartitions();
             DateTime time2 = DateTime.Now;
@@ -159,13 +161,14 @@ namespace Demo
             port.Open();
 
             Demo.EnterFirehose(port);
-            FirehoseServer server = new FirehoseServer { Port = port };
+            FirehoseServer server = new FirehoseServer(port);
             Demo demo = new Demo { Server = server };
             demo.MI_BypassAuth();
             server.GetDeviceConfig();
             server.ProgressChanged += OnProgressChanged;
-            demo.WriteSparseImage();
+            demo.ReadGPT();
             demo.Readback();
+            demo.WriteSparseImage();
             demo.WriteUnSparseImage();
             demo.ErasePartition();
             server.ProgressChanged -= OnProgressChanged;

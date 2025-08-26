@@ -19,7 +19,7 @@ namespace SharpEDL
         /// <summary>
         /// 设置或获取当前串口实例,实例化该类时必须指定
         /// </summary>
-        public required SerialPort Port { get; set; }
+        public SerialPort Port { get; set; }
 
         /// <summary>
         /// 设置或获取字库类型,默认为UFS<para/>
@@ -44,6 +44,11 @@ namespace SharpEDL
         public event EventHandler<(long, long)>? ProgressChanged;
 
         public int MaxSparseDataSizeToDevice { get; set; } = 1024 * 1024 * 128;
+
+        public FirehoseServer(SerialPort port)
+        {
+            Port = port;
+        }
 
         /// <summary>
         /// 一次性全部读取缓冲区中所有数据,若无数据则会阻塞
@@ -182,11 +187,12 @@ namespace SharpEDL
             return response;
         }
 
-        private QCResponse CommonStreamMethod(PartitionInfo info, Func<PartitionInfo, Stream, QCResponse> func)
+        private QCResponse CommonStreamMethod(PartitionInfo info, Func<PartitionInfo, Stream, QCResponse> func, 
+            FileMode mode = FileMode.Open)
         {
             if (string.IsNullOrEmpty(info.FilePath))
                 throw new ArgumentNullException(nameof(info.FilePath));
-            FileStream stream = new FileStream(info.FilePath, FileMode.Open, FileAccess.ReadWrite);
+            FileStream stream = new FileStream(info.FilePath, mode, FileAccess.ReadWrite);
             try
             {
                 var response = func(info, stream);
@@ -242,7 +248,7 @@ namespace SharpEDL
         /// </summary>
         /// <param name="info">分区信息,必须指定<see cref="PartitionInfo.FilePath"/>为镜像路径</param>
         /// <param name="stream">用于存储数据的流</param>
-        public QCResponse ReadbackImage(PartitionInfo info) => CommonStreamMethod(info, ReadbackImage);
+        public QCResponse ReadbackImage(PartitionInfo info) => CommonStreamMethod(info, ReadbackImage, FileMode.Create);
 
         /// <summary>
         /// 写入稀疏文件，可通过<see cref="ProgressChanged"/>事件监听进度
@@ -378,13 +384,13 @@ namespace SharpEDL
                     Label = Encoding.Unicode.GetString(table.Label).Replace("\0", "").Trim(),
                     StartSector = table.StartSector.ToString(),
                     Lun = lun,
-                    SectorLen = table.EndSector - table.StartSector,
+                    SectorLen = table.EndSector - table.StartSector + 1,
                     BytesPerSector = SectorSize
                 });
             }
             if (includesPGPT)
             {
-                long sectorLen = (header.GPTTableStartSector * SectorSize + header.SizePerTableMember * header.GPTMemberCount) / SectorSize;
+                long sectorLen = MemoryName == "eMMC" ? 34 : 6;
                 partitions.Add(new PartitionInfo
                 {
                     Label = "PrimaryGPT",
@@ -396,8 +402,8 @@ namespace SharpEDL
                 partitions.Add(new PartitionInfo
                 {
                     Label = "BackupGPT",
-                    StartSector = header.HeaderBackupStartSector.ToString(),
-                    SectorLen = sectorLen,
+                    StartSector = $"NUM_DISK_SECTORS-{sectorLen-1}.",
+                    SectorLen = sectorLen-1,
                     Lun = lun,
                     BytesPerSector = SectorSize
                 });

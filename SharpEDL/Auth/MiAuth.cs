@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.IO.Ports;
 using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Xml.Schema;
 
@@ -14,7 +15,7 @@ namespace SharpEDL.Auth
     /// </summary>
     public class MiAuth
     {
-        public required FirehoseServer Server { get; set; }
+        public FirehoseServer Server { get; set; }
 
         /// <summary>
         /// 用于免授权的签名
@@ -28,6 +29,8 @@ namespace SharpEDL.Auth
             "936E3A8E573CAD07C167644B61217835D85AD4FDDB7D840A2B7225432FCDA13A7C192CFA979ED16517E6970B1B07DF6C516FEC81F6968FCF7FFDDBC397A162C2CA3E5D76124AA1769F1B2164B39B76930B4CC67519F7F339877677F4E8AF25828682BCBF4E59600000020532699253E0B1CC5D9D0D554AF2BD46D56F18D6E5290BA4A0CAC2431F9F19C4C1A39D7664FFAB48A9E11A559386819835B84DF5675E70D25FDB5123E7B040FE21108F0AE6D7D9D267F2C9C61AD054C68493DC4D33F74D0CF2D4AADCD430152DB67C22A181AD6D7761637F70CBDA884CDC11337203837790E6845CA5A8767930B9C26FDA71272564CA34763D352F5FE42AB738FB38A5"
         ];
 
+        public MiAuth(FirehoseServer server) => Server = server;
+
         /// <summary>
         /// 发送签名
         /// </summary>
@@ -36,9 +39,7 @@ namespace SharpEDL.Auth
         public void SendSign(string hexSign)
         {
             Server.Port.Write("<?xml version=\"1.0\" ?><data><sig TargetName=\"sig\" verbose=\"1\" size_in_bytes=\"256\" /></data>");
-            QCResponse response = Server.WaitForResponse();
-            if (response.Response != "ACK")
-                throw new Exception("Error from device\n" + string.Join("", response.Logs));
+            Server.WaitForResponse().CheckAndThrow();
             byte[] sign = DataHelper.HexStr2Bytes(hexSign);
             Server.Port.Write(sign, 0, sign.Length);
         }
@@ -49,7 +50,11 @@ namespace SharpEDL.Auth
         public string GetBlob()
         {
             Server.Port.Write("<?xml version=\"1.0\" ?><data><sig TargetName=\"req\" /></data>");
-            return Encoding.UTF8.GetString(Server.ReadFromDevice());
+            string response = Encoding.UTF8.GetString(Server.ReadFromDevice());
+            Match match = Regex.Match(response, @"value=""(.+)\""");
+            if (!match.Success)
+                return "";
+            return match.Groups[1].Value;
         }
 
         /// <summary>

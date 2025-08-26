@@ -17,7 +17,7 @@ namespace SharpEDL
         /// <summary>
         /// 设置或获取当前串口实例,实例化该类时必须指定
         /// </summary>
-        public required SerialPort Port { get; set; }
+        public SerialPort Port { get; set; }
 
         /// <summary>
         /// (From QSaharaServer)数据缓冲区大小
@@ -25,6 +25,11 @@ namespace SharpEDL
         public static readonly int SaharaRawBufferSize = 0x100000;
 
         private byte[] RxBuffer { get; set; } = new byte[SaharaRawBufferSize];
+
+        public SaharaServer(SerialPort port)
+        {
+            Port = port;
+        }
 
         /// <summary>
         /// (unsafe)检查响应状态是否为成功
