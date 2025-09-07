@@ -65,6 +65,25 @@ namespace SharpEDL
         }
 
         /// <summary>
+        /// 初始化该类的实例
+        /// </summary>
+        /// <param name="server"><see cref="FirehoseServer"/>类的实例</param>
+        /// <param name="programFiles">刷机包中所有rawprogram.xml路径的数组</param>
+        /// <exception cref="ArgumentNullException">当传入的rawprogram路径非法时抛出此异常</exception>
+        public ProgramFlasher(FirehoseServer server, string[] programFiles)
+        {
+            Server = server;
+            string? path = Path.GetDirectoryName(programFiles[0]);
+            if(string.IsNullOrEmpty(path))
+                throw new ArgumentNullException(nameof(path));
+            ProgramPath = path;
+            Partitions = ParseProgramFiles(ProgramPath,
+                programFiles);
+            Patches = ParsePatchFiles(Directory.GetFiles(ProgramPath)
+                .Where(name => Regex.IsMatch(name, @"patch[\d]+.xml")).ToArray());
+        }
+
+        /// <summary>
         /// 解析刷机包中的rawprogram文件
         /// </summary>
         /// <param name="programPath">刷机包路径</param>

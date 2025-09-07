@@ -8,22 +8,16 @@
     <Title>SharpEDL</Title>
     <Authors>Bit</Authors>
     <Description>A Qucalcomm EDL library using C#</Description>
-    <Version>1.0.3</Version>
+    <Version>1.0.5</Version>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <RepositoryType>git</RepositoryType>
     <PackageProjectUrl>https://github.com/Asgore-Dreemur/SharpEDL</PackageProjectUrl>
     <RepositoryUrl>https://github.com/Asgore-Dreemur/SharpEDL</RepositoryUrl>
     <PackageTags>EDL;Qucalcomm;9008</PackageTags>
     <PackageReleaseNotes>Changelog:
-FirhoseServer: Implemented constructor with argument.
-Fixed a bug that will be IOException when calling ReadbackImage with only PartitionInfo.
-Changed the BackupGPT start sector from actual value to expression.
-SaharaServer: Implemented constructor with argument
-MiAuth: Implemented constructor with argument.
-Fixed a bug about getting blob.
-ProgramFlasher: Changed the type of BypassPartitions.
-Implemented rawprogram.xml generation.</PackageReleaseNotes>
+This version allows to use rawprogram files as argument directly.</PackageReleaseNotes>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
+	<GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
 
   <ItemGroup>
